@@ -276,24 +276,73 @@ function UtilizationTab({ vendor }) {
   )
 }
 
+function cleanMarkdown(text) {
+  if (!text) return ''
+  return text
+    .replace(/^#{1,4}\s+/gm, '')           // remove markdown headings
+    .replace(/\*\*([^*]+)\*\*/g, '$1')      // bold -> plain
+    .replace(/\*([^*]+)\*/g, '$1')          // italic -> plain
+    .replace(/^[-*]\s+/gm, '\u2022 ')       // bullets -> bullet char
+    .replace(/^\d+\.\s+/gm, (m) => m)       // keep numbered lists as-is
+    .replace(/`([^`]+)`/g, '$1')            // inline code -> plain
+    .replace(/\n{3,}/g, '\n\n')             // collapse triple+ newlines
+    .trim()
+}
+
+function FormattedText({ text }) {
+  const cleaned = cleanMarkdown(text)
+  const paragraphs = cleaned.split('\n\n')
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {paragraphs.map((para, i) => {
+        const lines = para.split('\n')
+        return (
+          <div key={i}>
+            {lines.map((line, j) => (
+              <p key={j} style={{
+                margin: 0,
+                marginBottom: lines.length > 1 && j < lines.length - 1 ? 4 : 0,
+                fontSize: 14,
+                lineHeight: 1.7,
+                color: 'var(--text-secondary)',
+              }}>
+                {line}
+              </p>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function IntelligenceTab({ vendor, apiKey }) {
   const [loading, setLoading] = useState(false)
   const [analysis, setAnalysis] = useState(null)
-  const [analysisType, setAnalysisType] = useState('summary')
+  const [analysisType, setAnalysisType] = useState(null)
+  const [pendingType, setPendingType] = useState(null)
 
-  const generateAnalysis = async (type) => {
+  const handleButtonClick = (type) => {
     setAnalysisType(type)
-    if (!apiKey) {
+    setAnalysis(null)
+    if (apiKey) {
+      setPendingType(type)
+    } else {
       setAnalysis(getFallbackAnalysis(vendor, type))
-      return
+      setPendingType(null)
     }
+  }
 
+  const callClaude = async () => {
+    const type = pendingType
+    setPendingType(null)
     setLoading(true)
     try {
       const prompts = {
-        summary: `Analyze this vendor relationship for a ~35-person AI startup. Vendor: ${vendor.name}. Category: ${CATEGORIES[vendor.category]?.label}. Annual spend: $${vendor.annualSpend}. Health score: ${vendor.health}/100. Utilization: ${vendor.utilization || 'N/A'}%. Story: ${vendor.story}. Risks: ${vendor.risks.join('; ')}. Give a concise 3-4 sentence assessment of this vendor relationship and top recommendation.`,
-        renewal: `Prepare a renewal negotiation brief for ${vendor.name}. Current annual spend: $${vendor.annualSpend}. Contract highlights: ${vendor.contractHighlights.join('; ')}. Known risks: ${vendor.risks.join('; ')}. Auto-renew: ${vendor.autoRenew}. The company is a ~35-person AI startup with $232M raised. Generate 3-4 specific negotiation talking points and a recommended ask.`,
-        alternatives: `Suggest 2-3 alternatives to ${vendor.name} for a ~35-person AI startup. Current use: ${vendor.story}. Current spend: $${vendor.annualSpend}/yr. What should they evaluate, and what are the tradeoffs? Keep it concise and practical.`,
+        summary: `Analyze this vendor relationship for a ~35-person AI startup. Vendor: ${vendor.name}. Category: ${CATEGORIES[vendor.category]?.label}. Annual spend: $${vendor.annualSpend}. Health score: ${vendor.health}/100. Utilization: ${vendor.utilization || 'N/A'}%. Story: ${vendor.story}. Risks: ${vendor.risks.join('; ')}. Give a concise 3-4 sentence assessment of this vendor relationship and top recommendation. Do not use markdown formatting.`,
+        renewal: `Prepare a renewal negotiation brief for ${vendor.name}. Current annual spend: $${vendor.annualSpend}. Contract highlights: ${vendor.contractHighlights.join('; ')}. Known risks: ${vendor.risks.join('; ')}. Auto-renew: ${vendor.autoRenew}. The company is a ~35-person AI startup with $232M raised. Generate 3-4 specific negotiation talking points and a recommended ask. Do not use markdown formatting.`,
+        alternatives: `Suggest 2-3 alternatives to ${vendor.name} for a ~35-person AI startup. Current use: ${vendor.story}. Current spend: $${vendor.annualSpend}/yr. What should they evaluate, and what are the tradeoffs? Keep it concise and practical. Do not use markdown formatting.`,
       }
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -318,9 +367,14 @@ function IntelligenceTab({ vendor, apiKey }) {
         setAnalysis('Unable to generate analysis. Please check your API key.')
       }
     } catch (err) {
-      setAnalysis(getFallbackAnalysis(vendor, type))
+      setAnalysis(getFallbackAnalysis(vendor, pendingType || type))
     }
     setLoading(false)
+  }
+
+  const useFallback = () => {
+    setAnalysis(getFallbackAnalysis(vendor, pendingType))
+    setPendingType(null)
   }
 
   return (
@@ -332,20 +386,40 @@ function IntelligenceTab({ vendor, apiKey }) {
             fontSize: 13, color: 'var(--amber)', background: 'var(--amber-light)',
             padding: '8px 12px', borderRadius: 'var(--radius-sm)', marginBottom: 16
           }}>
-            No API key set. Showing pre-written analysis. Connect your Anthropic API key in Settings for live AI-powered insights.
+            No API key configured. Showing pre-written analysis.
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <button className={`btn ${analysisType === 'summary' ? 'btn-primary' : ''}`} onClick={() => generateAnalysis('summary')}>
+          <button className={`btn ${analysisType === 'summary' ? 'btn-primary' : ''}`} onClick={() => handleButtonClick('summary')}>
             Vendor Assessment
           </button>
-          <button className={`btn ${analysisType === 'renewal' ? 'btn-primary' : ''}`} onClick={() => generateAnalysis('renewal')}>
+          <button className={`btn ${analysisType === 'renewal' ? 'btn-primary' : ''}`} onClick={() => handleButtonClick('renewal')}>
             Renewal Prep
           </button>
-          <button className={`btn ${analysisType === 'alternatives' ? 'btn-primary' : ''}`} onClick={() => generateAnalysis('alternatives')}>
+          <button className={`btn ${analysisType === 'alternatives' ? 'btn-primary' : ''}`} onClick={() => handleButtonClick('alternatives')}>
             Alternatives
           </button>
         </div>
+
+        {pendingType && !loading && (
+          <div style={{
+            padding: 20, borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--warm-200)', background: 'var(--warm-50)',
+            textAlign: 'center',
+          }}>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 12 }}>
+              Call Claude to generate a live {pendingType === 'summary' ? 'vendor assessment' : pendingType === 'renewal' ? 'renewal prep brief' : 'alternatives analysis'}?
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={callClaude}>
+                Yes, call Claude
+              </button>
+              <button className="btn" onClick={useFallback}>
+                Use pre-written
+              </button>
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div style={{ padding: 24, textAlign: 'center' }}>
@@ -356,24 +430,23 @@ function IntelligenceTab({ vendor, apiKey }) {
           </div>
         )}
 
-        {analysis && !loading && (
+        {analysis && !loading && !pendingType && (
           <div style={{
-            fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)',
-            background: 'var(--blue-faint)', padding: 16, borderRadius: 'var(--radius-sm)',
-            whiteSpace: 'pre-wrap',
+            background: 'var(--warm-50)', padding: 20, borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--warm-200)',
           }}>
-            <div className="claude-indicator" style={{ marginBottom: 8 }}>
+            <div className="claude-indicator" style={{ marginBottom: 12 }}>
               <span className="claude-dot" />
-              {apiKey ? 'Claude Analysis' : 'Pre-written Analysis (connect API for live)'}
+              {apiKey ? 'Claude Analysis' : 'Pre-written Analysis'}
             </div>
-            {analysis}
+            <FormattedText text={analysis} />
           </div>
         )}
 
-        {!analysis && !loading && (
+        {!analysis && !loading && !pendingType && (
           <div className="empty-state">
             <Brain size={32} color="var(--text-muted)" />
-            <p style={{ marginTop: 8 }}>Select an analysis type above to get Claude-powered intelligence on this vendor.</p>
+            <p style={{ marginTop: 8 }}>Select an analysis type above to get intelligence on this vendor.</p>
           </div>
         )}
       </div>
